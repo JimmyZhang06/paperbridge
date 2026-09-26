@@ -1,0 +1,101 @@
+/* A comfortable, shared reading scale for everything in the right assistant pane. */
+.tutor-pane .tutor-title h2 { font-size: 20px; line-height: 1.3; }
+.tutor-pane .tutor-title > div > span { margin-top: 3px; font-size: 13px; line-height: 1.45; }
+.tutor-pane .tutor-tabs { height: 46px; flex-basis: 46px; gap: 12px; }
+.tutor-pane .tutor-tabs button { min-height: 40px; padding: 0 9px; gap: 7px; font-size: 14px; }
+.tutor-pane .tab-count { min-width: 21px; height: 21px; font-size: 12px; }
+.tutor-pane .tutor-content,
+.tutor-pane .notes-content,
+.tutor-pane .roadmap-content,
+.tutor-pane .figure-study-content { padding: 16px 18px 18px; }
+.tutor-pane .guide-callout { gap: 12px; padding: 14px; margin-bottom: 14px; }
+.tutor-pane .guide-callout strong,
+.tutor-pane .field-label > span:first-child,
+.tutor-pane .selection-label > span:first-child { font-size: 14px; line-height: 1.5; }
+.tutor-pane .guide-callout p { font-size: 14px; line-height: 1.75; }
+.tutor-pane .selection-card { padding: 14px; margin-bottom: 14px; }
+.tutor-pane .selection-label { align-items: baseline; gap: 10px; }
+.tutor-pane .selection-label > span:last-child { font-size: 13px; }
+.tutor-pane .selection-card > p { margin: 10px 0 8px; font-size: 16px; line-height: 1.8; }
+.tutor-pane .selection-actions .app-button { min-height: 40px; font-size: 14px; }
+.tutor-pane .attempt-card,
+.tutor-pane .revision-card { padding: 14px; }
+.tutor-pane .optional-tag { padding: 4px 8px; font-size: 12px; }
+.tutor-pane .attempt-card textarea,
+.tutor-pane .revision-card textarea { min-height: 104px; padding: 11px 12px; font-size: 15px; line-height: 1.75; }
+.tutor-pane .revision-card textarea { min-height: 92px; }
+.tutor-pane .attempt-card textarea::placeholder,
+.tutor-pane .revision-card textarea::placeholder { font-size: 14px; }
+.tutor-pane .field-foot { margin-top: 7px; font-size: 12px; line-height: 1.5; }
+.tutor-pane .action-row { gap: 8px; margin: 12px 0; }
+.tutor-pane .tutor-action { min-height: 42px; height: auto; padding: 7px 8px; gap: 7px; font-size: 14px; line-height: 1.35; }
+.tutor-pane .response-area { gap: 11px; }
+.tutor-pane .response-placeholder,
+.tutor-pane .loading-card { gap: 11px; padding: 14px; }
+.tutor-pane .response-placeholder strong { font-size: 14px; line-height: 1.55; }
+.tutor-pane .response-placeholder p { font-size: 13px; line-height: 1.7; }
+.tutor-pane .response-card { padding: 14px; border-radius: 9px; }
+.tutor-pane .response-heading { gap: 8px; flex-wrap: wrap; }
+.tutor-pane .ai-badge { font-size: 13px; }
+.tutor-pane .source-citation { font-size: 12px; }
+.tutor-pane .response-copy { margin-top: 11px; font-size: 15px; line-height: 1.8; }
+.tutor-pane .response-copy p { margin: 0 0 10px; }
+.tutor-pane .response-copy p:last-child { margin-bottom: 0; }
+.tutor-pane .response-copy .markdown-content { font-size: 15px; line-height: 1.8; }
+.tutor-pane .response-copy .markdown-content h1 { margin: 16px 0 9px; font-size: 20px; }
+.tutor-pane .response-copy .markdown-content h2 { margin: 15px 0 8px; font-size: 18px; }
+.tutor-pane .response-copy .markdown-content h3,
+.tutor-pane .response-copy .markdown-content h4 { margin: 13px 0 7px; font-size: 16px; }
+.tutor-pane .response-copy .markdown-content ul,
+.tutor-pane .response-copy .markdown-content ol { margin: 7px 0 13px; padding-left: 24px; }
+.tutor-pane .response-copy .markdown-content li { margin: 5px 0; line-height: 1.8; }
+.tutor-pane .response-copy .markdown-content blockquote { margin: 12px 0; padding: 10px 13px; line-height: 1.75; }
+.tutor-pane .response-copy .markdown-content pre { margin: 12px 0; padding: 13px; }
+.tutor-pane .response-copy .markdown-content pre code,
+.tutor-pane .response-copy .markdown-content table { font-size: 13px; }
+.tutor-pane .response-foot { flex-wrap: wrap; justify-content: flex-start; gap: 8px 12px; margin-top: 12px; padding-top: 10px; font-size: 12px; }
+.tutor-pane .response-foot > span { margin-right: auto; font-size: 12px; }
+.tutor-pane .response-foot button { min-height: 32px; display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 5px; font-size: 13px; line-height: 1.4; }
+.tutor-pane .response-foot button:hover { background: #f0f4f6; }
+.tutor-pane .revision-card { margin-top: 14px; }
+.tutor-pane .revision-actions { gap: 10px; margin-top: 10px; }
+.tutor-pane .save-note { min-height: 38px; height: auto; padding: 7px 12px; gap: 7px; font-size: 14px; }
+.tutor-pane .revision-actions > span { font-size: 12px; }
+.tutor-pane .uncertainty-input > summary { font-size: 13px; line-height: 1.6; }
+.tutor-pane .tutor-bottom-tip { gap: 7px; justify-content: flex-start; margin: 12px 2px 5px; font-size: 12px; line-height: 1.6; }
+.tutor-pane .figure-study-intro p,
+.tutor-pane .figure-reading-guide ol,
+.tutor-pane .figure-study-item .figure-reference-copy > span,
+.tutor-pane .roadmap-evidence-link,
+.tutor-pane .roadmap-focus-title h3,
+.tutor-pane .method-item-title,
+.tutor-pane .note-version p,
+.tutor-pane .note-passage,
+.tutor-pane .glossary-markdown { font-size: 14px; line-height: 1.75; }
+.tutor-pane .figure-study-item .figure-reference-copy strong,
+.tutor-pane .figure-study-list-heading,
+.tutor-pane .roadmap-heading strong,
+.tutor-pane .roadmap-stage,
+.tutor-pane .note-paper-summary strong { font-size: 14px; }
+.tutor-pane .tutor-empty > p { font-size: 14px; line-height: 1.8; }
+.tutor-pane .tutor-empty .subtle-button { min-height: 40px; height: auto; font-size: 14px; }
+
+@media (max-width: 790px) {
+  .tutor-pane .tutor-header { min-height: 64px; flex-basis: 64px; }
+  .tutor-pane .tutor-tabs { height: 48px; flex-basis: 48px; gap: 8px; padding: 0 12px; }
+  .tutor-pane .tutor-tabs button { min-height: 42px; padding: 0 8px; font-size: 13px; }
+  .tutor-pane .tutor-content,
+  .tutor-pane .notes-content,
+  .tutor-pane .roadmap-content,
+  .tutor-pane .figure-study-content { padding: 14px; }
+  .tutor-pane .response-foot { justify-content: flex-start; }
+  .tutor-pane .response-foot > span { flex-basis: 100%; }
+}
+
+@media (max-width: 420px) {
+  .tutor-pane .tutor-tabs { gap: 3px; padding: 0 8px; }
+  .tutor-pane .tutor-tabs button { gap: 5px; padding: 0 6px; font-size: 12px; }
+  .tutor-pane .action-row { grid-template-columns: 1fr 1fr; }
+  .tutor-pane .action-row .action-primary { grid-column: 1 / -1; }
+  .tutor-pane .selection-label { align-items: flex-start; flex-direction: column; gap: 3px; }
+}
