@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'rea
 import { createRoot, type Root } from 'react-dom/client';
 import {
   ArrowDown, ArrowRight, BarChart3, BookOpen, Check, CheckCheck, ChevronDown, ChevronLeft,
-  ChevronRight, CircleHelp, Clock3, FileText, Folder, FolderOpen, FolderPlus, Highlighter, Library, LoaderCircle,
+  ChevronRight, CircleHelp, Clock3, FileText, Folder, FolderOpen, FolderPlus, Highlighter, Languages, Library, LoaderCircle,
   MessageCircle, PanelRightClose, PanelRightOpen, Plus, Save, Search, Settings2, SlidersHorizontal, Sparkles,
   Trash2, Upload, X, Zap,
 } from 'lucide-react';
@@ -13,6 +13,10 @@ import { StudyRoadmap, type StudyStageId, type StudySource } from './features/st
 import { findFigureReferences, type FigureReference } from './features/reader/figureReferences';
 import { FigureStudyPanel } from './features/reader/FigureStudyPanel';
 import { StudyNotesPanel } from './features/notes/StudyNotesPanel';
+import { AssistantChatPanel } from './features/assistant/AssistantChatPanel';
+import { AssistantTranslatePanel } from './features/assistant/AssistantTranslatePanel';
+import type { ChatMessage } from './features/assistant/types';
+import { api, apiUrl } from './api';
 import { MarkdownContent } from './components/MarkdownContent';
 import { BrandMark } from './components/BrandMark';
 import { AppButton } from './components/AppButton';
@@ -32,16 +36,7 @@ type Note = { id: string; paperId: string; paperTitle?: string; page: number; pa
 type GlossaryTerm = { id: string; paperId: string; term: string; meaning: string; passage: string; page: number; createdAt: string };
 type Turn = { id: string; page: number; action: 'hint' | 'explain' | 'check'; passage: string; answer: string; createdAt: string; provider: string; mode?: 'provider' | 'demo'; question?: string };
 type ProviderSnapshot = { activeProviderId: string | null; providers: Provider[] };
-
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const apiUrl = (path: string) => `${API_BASE_URL}${path}`;
-
-const api = async <T,>(url: string, options?: RequestInit): Promise<T> => {
-  const response = await fetch(apiUrl(url), options);
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`);
-  return data as T;
-};
+type ChatTurn = ChatMessage & { id: string; provider?: string; mode?: 'provider' | 'demo' };
 
 const makeParagraphs = (paper: Paper): Paragraph[] => {
   let section = '';
@@ -72,6 +67,8 @@ function App() {
   const [revised, setRevised] = useState('');
   const [uncertainty, setUncertainty] = useState('');
   const [assistantTab, setAssistantTab] = useState<'tutor' | 'roadmap' | 'figures' | 'notes'>('tutor');
+  const [assistantMode, setAssistantMode] = useState<'tutor' | 'chat' | 'translate'>('tutor');
+  const [chatMessages, setChatMessages] = useState<ChatTurn[]>([]);
   const [studyStage, setStudyStage] = useState<StudyStageId>('background');
   const [studyQuestion, setStudyQuestion] = useState<string | null>(null);
   const [selectedFigureId, setSelectedFigureId] = useState<string | null>(null);
@@ -284,6 +281,18 @@ function App() {
       setMessage('AI 回答已收藏到这篇文献的笔记。');
     } catch (error) { setMessage((error as Error).message); }
   }
+  async function saveAITranslation(answer: string, targetLanguage: string) {
+    if (!paper || !activeParagraph) return;
+    try {
+      const note = await api<Note>(`/api/papers/${paper.id}/notes`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ page: activeParagraph.page, passage: activeParagraph.text, kind: 'ai', aiAnswer: `### AI 翻译（${targetLanguage}）\n\n${answer}`, revisedUnderstanding: '', firstAttempt: '' }),
+      });
+      setNotes(existing => [note, ...existing.filter(item => item.id !== note.id)]);
+      void reloadAllNotes();
+      setMessage('AI 译文已收藏到这篇文献的笔记。');
+    } catch (error) { setMessage((error as Error).message); }
+  }
   async function markParagraph(color: Note['highlightColor'] = 'yellow') {
     if (!paper || !activeParagraph) return;
     if (notes.some(note => note.kind === 'highlight' && note.page === activeParagraph.page && note.passage === activeParagraph.text)) { setMessage('这段原文已经标注，可在笔记中找到。'); return; }
@@ -450,7 +459,12 @@ function App() {
           <div className="tutor-header"><div className="tutor-title"><span className="tutor-icon">{assistantTab === 'figures' ? <BarChart3 size={17} /> : assistantTab === 'notes' ? <FileText size={17} /> : <Sparkles size={17} />}</span><div><h2>{assistantTab === 'notes' ? '学习笔记' : assistantTab === 'figures' ? '图表精读' : 'Reading tutor'}</h2><span>{assistantTab === 'notes' ? '你的理解与修订记录' : assistantTab === 'figures' ? '看原图、读数据、核对正文证据' : '陪你读懂英文原文'}</span></div></div><button className="icon-button" title="收起学习助手" aria-label="收起学习助手" onClick={() => { setAssistantCollapsed(true); setMobileFocus('reader'); }}><PanelRightClose size={17} /></button></div>
           <div className="tutor-tabs" role="group" aria-label="学习助手功能"><button aria-pressed={assistantTab === 'tutor'} className={assistantTab === 'tutor' ? 'selected' : ''} onClick={() => setAssistantTab('tutor')}><MessageCircle size={15} />学习助手</button><button aria-pressed={assistantTab === 'roadmap'} className={assistantTab === 'roadmap' ? 'selected' : ''} onClick={() => setAssistantTab('roadmap')}><BookOpen size={15} />论文主线</button><button aria-pressed={assistantTab === 'figures'} className={assistantTab === 'figures' ? 'selected' : ''} onClick={openFigureStudy}><BarChart3 size={15} />图表精读</button><button aria-pressed={assistantTab === 'notes'} className={assistantTab === 'notes' ? 'selected' : ''} onClick={() => { setAssistantTab('notes'); void reloadAllNotes(); }}><FileText size={15} />我的笔记 <span className="tab-count">{allNotes.length}</span></button></div>
           {assistantTab === 'tutor' ? <div className="tutor-content">
-            {!paper ? <div className="tutor-empty"><div className="tutor-empty-icon"><Sparkles size={18} /></div><h3>从一段原文开始</h3><p>导入论文后，选中左侧段落。你可以先复述，再请求提示、句子拆解或理解核对。</p><div className="empty-steps"><span><b>01</b>读原文</span><span><b>02</b>写理解</span><span><b>03</b>再问 AI</span></div><button className="subtle-button" onClick={() => fileRef.current?.click()}><Plus size={15} /> 导入一篇论文</button></div> : !activeParagraph ? <div className="tutor-empty"><h3>本页没有可选段落</h3><p>换到有文本的页面，或检查这是不是扫描版 PDF。</p></div> : <>
+            <div className="assistant-mode-switch" role="tablist" aria-label="AI 学习工具">
+              <button type="button" role="tab" aria-selected={assistantMode === 'tutor'} className={assistantMode === 'tutor' ? 'selected' : ''} onClick={() => setAssistantMode('tutor')}><BookOpen size={15} />论文精读</button>
+              <button type="button" role="tab" aria-selected={assistantMode === 'chat'} className={assistantMode === 'chat' ? 'selected' : ''} onClick={() => setAssistantMode('chat')}><MessageCircle size={15} />通用对话</button>
+              <button type="button" role="tab" aria-selected={assistantMode === 'translate'} className={assistantMode === 'translate' ? 'selected' : ''} onClick={() => setAssistantMode('translate')}><Languages size={15} />AI 翻译</button>
+            </div>
+            {assistantMode === 'chat' ? <AssistantChatPanel messages={chatMessages} onChange={setChatMessages} /> : assistantMode === 'translate' ? <AssistantTranslatePanel paperId={paper?.id || null} page={activeParagraph?.page || activePage} passage={activeParagraph?.text || ''} onSave={saveAITranslation} /> : !paper ? <div className="tutor-empty"><div className="tutor-empty-icon"><Sparkles size={18} /></div><h3>从一段原文开始</h3><p>导入论文后，选中左侧段落。你可以先复述，再请求提示、句子拆解或理解核对。</p><div className="empty-steps"><span><b>01</b>读原文</span><span><b>02</b>写理解</span><span><b>03</b>再问 AI</span></div><button className="subtle-button" onClick={() => fileRef.current?.click()}><Plus size={15} /> 导入一篇论文</button></div> : !activeParagraph ? <div className="tutor-empty"><h3>本页没有可选段落</h3><p>换到有文本的页面，或检查这是不是扫描版 PDF。</p></div> : <>
               <div className="guide-callout"><span className="guide-sparkle"><Sparkles size={14} /></span><div><strong>先试着说出你的理解</strong><p>{studyQuestion ? `当前主线问题：${studyQuestion}` : '读完左侧高亮段落后，用自己的话复述。写得不确定也没关系。'}</p></div></div>
               <div className="selection-card"><div className="selection-label"><span>当前段落</span><span>第 {activePage} 页 · {activeIndex + 1}/{paragraphs.length}</span></div><p>“{snippet(activeParagraph.text)}{activeParagraph.text.length > 110 ? '…' : ''}”</p><div className="selection-actions"><AppButton variant="text" onClick={returnToOriginal}>回到原文 <ArrowRight size={15} /></AppButton><AppButton variant="soft" onClick={() => void markParagraph()}><Highlighter size={15} />重点标注</AppButton></div></div>
               <div className="attempt-card"><div className="field-label"><span>我的理解</span><span className="optional-tag">先试着写</span></div><textarea ref={textAreaRef} value={attempt} onChange={e => setAttempt(e.target.value)} placeholder="这段主要在说……作者这样写是为了……" rows={4} /><div className="field-foot"><span>用你自己的话，不需要完美</span><span>{attempt.length}/1000</span></div></div>

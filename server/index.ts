@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { PDFParse } from 'pdf-parse';
-import { createProvider, demoTutor, type TutorRequest } from './providers.js';
+import { createProvider, demoTutor, type ChatMessage, type TutorRequest } from './providers.js';
 import { dataDir, ensureStore, publicProvider, readStore, uploadDir, writeStore } from './store.js';
 import type { GlossaryTerm, LearningNote, Paper, PaperGroup, ProviderConfig, StudyTurn } from './types.js';
 
@@ -238,6 +238,53 @@ app.post('/api/providers/:id/test', async (req, res, next) => {
     if (!provider) { res.status(404).json({ error: '找不到这个供应商。' }); return; }
     const answer = await createProvider(provider).complete({ paperTitle: 'Connection test', page: 1, passage: 'The sentence is: “A quick connection check.”', learnerAttempt: 'The connection is being checked.', action: 'check' });
     res.json({ ok: true, preview: answer.slice(0, 240) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/assistant/chat', async (req, res, next) => {
+  try {
+    const messages = req.body?.messages as ChatMessage[] | undefined;
+    if (!Array.isArray(messages) || messages.length < 1 || messages.length > 40
+      || messages.some(message => !message || !['user', 'assistant'].includes(message.role) || typeof message.content !== 'string' || !message.content.trim() || message.content.length > 8_000)
+      || messages[messages.length - 1]?.role !== 'user'
+      || messages.reduce((total, message) => total + message.content.length, 0) > 30_000) {
+      res.status(400).json({ error: '对话内容无效或过长，请控制在 40 条消息、30,000 个字符以内。' }); return;
+    }
+    const store = await readStore();
+    const provider = store.providers.find(item => item.id === store.activeProviderId && item.enabled);
+    if (!provider) {
+      res.json({ answer: '通用助手目前处于演示模式，尚未连接 AI 服务，因此不能生成真实回答。请先在右上角设置一个 AI 供应商。', provider: '演示模式', mode: 'demo' }); return;
+    }
+    const answer = await createProvider(provider).chat(messages);
+    res.json({ answer, provider: provider.name, mode: 'provider' });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/assistant/translate', async (req, res, next) => {
+  try {
+    const { paperId, page: pageNumber, passage, targetLanguage } = req.body as {
+      paperId?: string; page?: number; passage?: string; targetLanguage?: string;
+    };
+    const languages = new Set(['简体中文', '繁體中文', 'English', '日本語']);
+    if (!paperId || !Number.isInteger(pageNumber) || !passage?.trim() || passage.length > 12_000
+      || !languages.has(targetLanguage || '简体中文')) {
+      res.status(400).json({ error: '请提供有效的论文段落、页码和目标语言。' }); return;
+    }
+    const store = await readStore();
+    const paper = store.papers.find(item => item.id === paperId);
+    if (!paper) { res.status(404).json({ error: '找不到这篇文献。' }); return; }
+    const sourcePage = paper.pages.find(item => item.page === pageNumber);
+    const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
+    const selectedPrefix = normalize(passage).slice(0, Math.min(48, normalize(passage).length));
+    if (!sourcePage || !normalize(sourcePage.text).includes(selectedPrefix)) {
+      res.status(400).json({ error: '所选内容无法在当前论文页码中核对，请重新选择原文段落。' }); return;
+    }
+    const provider = store.providers.find(item => item.id === store.activeProviderId && item.enabled);
+    if (!provider) {
+      res.json({ answer: 'AI 翻译目前处于演示模式，尚未连接 AI 服务，因此不会生成不可靠的译文。请先在右上角设置一个 AI 供应商。', provider: '演示模式', mode: 'demo' }); return;
+    }
+    const answer = await createProvider(provider).translate(passage, targetLanguage || '简体中文');
+    res.json({ answer, provider: provider.name, mode: 'provider' });
   } catch (error) { next(error); }
 });
 
