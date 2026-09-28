@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import {
   ArrowDown, ArrowRight, BarChart3, BookOpen, Check, CheckCheck, ChevronDown, ChevronLeft,
@@ -15,7 +15,6 @@ import { FigureStudyPanel } from './features/reader/FigureStudyPanel';
 import { StudyNotesPanel } from './features/notes/StudyNotesPanel';
 import { AssistantChatPanel } from './features/assistant/AssistantChatPanel';
 import { AssistantTranslatePanel } from './features/assistant/AssistantTranslatePanel';
-import type { ChatMessage } from './features/assistant/types';
 import { api, apiUrl } from './api';
 import { MarkdownContent } from './components/MarkdownContent';
 import { BrandMark } from './components/BrandMark';
@@ -36,7 +35,6 @@ type Note = { id: string; paperId: string; paperTitle?: string; page: number; pa
 type GlossaryTerm = { id: string; paperId: string; term: string; meaning: string; passage: string; page: number; createdAt: string };
 type Turn = { id: string; page: number; action: 'hint' | 'explain' | 'check'; passage: string; answer: string; createdAt: string; provider: string; mode?: 'provider' | 'demo'; question?: string };
 type ProviderSnapshot = { activeProviderId: string | null; providers: Provider[] };
-type ChatTurn = ChatMessage & { id: string; provider?: string; mode?: 'provider' | 'demo' };
 
 const makeParagraphs = (paper: Paper): Paragraph[] => {
   let section = '';
@@ -68,12 +66,13 @@ function App() {
   const [uncertainty, setUncertainty] = useState('');
   const [assistantTab, setAssistantTab] = useState<'tutor' | 'roadmap' | 'figures' | 'notes'>('tutor');
   const [assistantMode, setAssistantMode] = useState<'tutor' | 'chat' | 'translate'>('tutor');
-  const [chatMessages, setChatMessages] = useState<ChatTurn[]>([]);
   const [studyStage, setStudyStage] = useState<StudyStageId>('background');
   const [studyQuestion, setStudyQuestion] = useState<string | null>(null);
   const [selectedFigureId, setSelectedFigureId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [assistantCollapsed, setAssistantCollapsed] = useState(false);
+  const [chatToolbarActionsTarget, setChatToolbarActionsTarget] = useState<HTMLElement | null>(null);
+  const chatToolbarActionsRef = useCallback((element: HTMLDivElement | null) => setChatToolbarActionsTarget(element), []);
   const [mobileFocus, setMobileFocus] = useState<'reader' | 'assistant'>('reader');
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -100,6 +99,10 @@ function App() {
   const currentRawPage = currentPageIndex >= 0 ? paper?.pages[currentPageIndex] : undefined;
   const figureReferences = useMemo(() => findFigureReferences(paper?.pages || []), [paper]);
   const progress = progressFor(notes, paper || undefined);
+  // Responses are stored per paper; only surface answers tied to the passage in focus.
+  const activeTurns = useMemo(() => turns.filter(turn =>
+    turn.page === activeParagraph?.page && turn.passage === activeParagraph?.text
+  ), [turns, activeParagraph]);
   const savedNote = notes.find(n => (n.kind || 'learning') === 'learning' && n.page === activePage && (n.passage === activeParagraph?.text || Boolean(activeParagraph?.text.includes(n.passage))));
   const visiblePapers = papers.filter(item => {
     const inGroup = groupFilter === 'all' || (groupFilter === 'ungrouped' ? !item.groupId : item.groupId === groupFilter);
@@ -197,7 +200,7 @@ function App() {
     setActiveParagraph(target);
     setCurrentPage(target.page);
     const saved = notes.find(note => note.page === target.page && (note.passage === target.text || target.text.includes(note.passage)));
-    setAttempt(saved?.firstAttempt || ''); setRevised(saved?.revisedUnderstanding || ''); setUncertainty(saved?.uncertainty || ''); setTurns([]);
+    setAttempt(saved?.firstAttempt || ''); setRevised(saved?.revisedUnderstanding || ''); setUncertainty(saved?.uncertainty || '');
     if (saved?.stageId) setStudyStage(saved.stageId);
   }
   function selectRoadmapSource(source: StudySource) {
@@ -237,12 +240,31 @@ function App() {
     setCurrentPage(page);
     const first = paragraphs.find(paragraph => paragraph.page === page);
     setActiveParagraph(first || null);
-    setAttempt(''); setRevised(''); setUncertainty(''); setTurns([]);
+    setAttempt(''); setRevised(''); setUncertainty('');
+  }
+  function openChatCitation(page: number) {
+    navigatePage(page);
+    setReaderMode('text');
+    setMobileFocus('reader');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const target = paragraphs.find(item => item.page === page);
+      if (target) document.querySelector<HTMLElement>(`[data-paragraph-id="${CSS.escape(target.id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }));
   }
   function openFigureStudy() {
     setAssistantCollapsed(false);
     setMobileFocus('assistant');
     setAssistantTab('figures');
+  }
+  function changeAssistantView(value: string) {
+    if (value.startsWith('tutor:')) {
+      setAssistantTab('tutor');
+      setAssistantMode(value.slice('tutor:'.length) as 'tutor' | 'chat' | 'translate');
+      return;
+    }
+    if (value === 'figures') { openFigureStudy(); return; }
+    if (value === 'notes') void reloadAllNotes();
+    setAssistantTab(value as 'roadmap' | 'notes');
   }
   async function askTutor(action: Turn['action'], question?: string) {
     if (!paper || !activeParagraph) return;
@@ -397,11 +419,12 @@ function App() {
     const selection = window.getSelection()?.toString().trim();
     if (selection && selection.length > 2 && selection.length < 12_000) {
       const containing = paragraphs.find(p => p.text.includes(selection.slice(0, Math.min(50, selection.length))));
-      if (containing) { setActiveParagraph({ ...containing, text: selection }); setCurrentPage(containing.page); setAttempt(''); setRevised(''); setUncertainty(''); setTurns([]); }
+      if (containing) { setActiveParagraph({ ...containing, text: selection }); setCurrentPage(containing.page); setAttempt(''); setRevised(''); setUncertainty(''); }
     }
   }
 
   const activeSection = currentRawPage?.text.match(/\b(Abstract|Introduction|Method|Participants|Procedures|Measures|Results|Discussion|Limitations|References)\b/i)?.[0] || 'Introduction';
+  const renderResponseCard = (turn: Turn, compact = false) => <div className={`response-card ${turn.mode === 'demo' ? 'demo-response' : ''} ${compact ? 'response-card-compact' : ''}`} key={turn.id}><div className="response-heading"><span className="ai-badge"><Sparkles size={12} />{turn.action === 'hint' ? '学习提示' : turn.action === 'explain' ? '句子拆解 / 术语解释' : '理解核对'}</span><span className="source-citation"><FileText size={12} />第 {turn.page} 页{compact ? '' : ' · 当前段落'}</span></div><div className="response-copy"><MarkdownContent>{turn.answer}</MarkdownContent></div><div className="response-foot"><span>{turn.provider}</span><button disabled={notes.some(note => note.kind === 'ai' && note.paperId === paper?.id && note.page === turn.page && note.aiAnswer === turn.answer)} onClick={() => void saveAIAnswer(turn)}><Save size={12} />{notes.some(note => note.kind === 'ai' && note.paperId === paper?.id && note.page === turn.page && note.aiAnswer === turn.answer) ? '已收藏' : '收藏 AI 回答'}</button>{turn.action === 'explain' && turn.mode === 'provider' && turn.passage.length <= 120 && turn.passage.split(/\s+/).length <= 8 && <button disabled={terms.some(term => term.paperId === paper?.id && term.term.toLowerCase() === turn.passage.toLowerCase())} onClick={() => void saveGlossaryTerm(turn)}><Save size={12} />存为术语卡</button>}<button onClick={() => { setRevised(revised || attempt); revisionRef.current?.focus(); }}><ArrowDown size={12} />写下修订理解</button></div></div>;
 
   return (
     <div className="app-shell">
@@ -455,24 +478,18 @@ function App() {
           </> : <div className="welcome-reader"><div className="welcome-icon"><BookOpen size={25} /></div><span className="eyebrow">READ WITH INTENTION</span><h1>把论文读懂，<br /><em>而不是读完。</em></h1><p>导入一篇英文论文，从原文开始。先写下你的理解，再用 AI 提示逐步核对。</p><button className="primary-button" onClick={() => fileRef.current?.click()} disabled={uploading}><Upload size={16} />{uploading ? '正在解析论文…' : '导入第一篇论文'}</button><div className="feature-row"><span><Check size={14} /> 原文优先</span><span><Check size={14} /> 可核对页码</span><span><Check size={14} /> 笔记本地保存</span></div></div>}
         </section>
 
-        <aside className="tutor-pane">
-          <div className="tutor-header"><div className="tutor-title"><span className="tutor-icon">{assistantTab === 'figures' ? <BarChart3 size={17} /> : assistantTab === 'notes' ? <FileText size={17} /> : <Sparkles size={17} />}</span><div><h2>{assistantTab === 'notes' ? '学习笔记' : assistantTab === 'figures' ? '图表精读' : 'Reading tutor'}</h2><span>{assistantTab === 'notes' ? '你的理解与修订记录' : assistantTab === 'figures' ? '看原图、读数据、核对正文证据' : '陪你读懂英文原文'}</span></div></div><button className="icon-button" title="收起学习助手" aria-label="收起学习助手" onClick={() => { setAssistantCollapsed(true); setMobileFocus('reader'); }}><PanelRightClose size={17} /></button></div>
-          <div className="tutor-tabs" role="group" aria-label="学习助手功能"><button aria-pressed={assistantTab === 'tutor'} className={assistantTab === 'tutor' ? 'selected' : ''} onClick={() => setAssistantTab('tutor')}><MessageCircle size={15} />学习助手</button><button aria-pressed={assistantTab === 'roadmap'} className={assistantTab === 'roadmap' ? 'selected' : ''} onClick={() => setAssistantTab('roadmap')}><BookOpen size={15} />论文主线</button><button aria-pressed={assistantTab === 'figures'} className={assistantTab === 'figures' ? 'selected' : ''} onClick={openFigureStudy}><BarChart3 size={15} />图表精读</button><button aria-pressed={assistantTab === 'notes'} className={assistantTab === 'notes' ? 'selected' : ''} onClick={() => { setAssistantTab('notes'); void reloadAllNotes(); }}><FileText size={15} />我的笔记 <span className="tab-count">{allNotes.length}</span></button></div>
+        <aside className={`tutor-pane ${assistantTab === 'tutor' && assistantMode === 'chat' ? 'chat-mode-active' : ''}`}>
+          <div className={`tutor-nav-row ${assistantTab === 'tutor' && assistantMode === 'chat' ? 'chat-nav-row' : ''}`}><SelectMenu className="assistant-master-picker" label="切换学习功能" value={assistantTab === 'tutor' ? `tutor:${assistantMode}` : assistantTab} options={[{ value: 'tutor:tutor', label: '论文精读' }, { value: 'tutor:chat', label: '通用对话' }, { value: 'tutor:translate', label: 'AI 翻译' }, { value: 'roadmap', label: '论文主线' }, { value: 'figures', label: '图表精读' }, { value: 'notes', label: `我的笔记 · ${allNotes.length}`}]} onChange={changeAssistantView} leadingIcon={assistantTab === 'roadmap' ? <BookOpen size={16} /> : assistantTab === 'figures' ? <BarChart3 size={16} /> : assistantTab === 'notes' ? <FileText size={16} /> : assistantMode === 'chat' ? <MessageCircle size={16} /> : assistantMode === 'translate' ? <Languages size={16} /> : <Sparkles size={16} />} />{assistantTab === 'tutor' && assistantMode === 'chat' && <div className="chat-toolbar-actions-slot" ref={chatToolbarActionsRef} />}<button className="tutor-collapse-button" title="收起学习助手" aria-label="收起学习助手" onClick={() => { setAssistantCollapsed(true); setMobileFocus('reader'); }}><PanelRightClose size={16} /></button></div>
           {assistantTab === 'tutor' ? <div className="tutor-content">
-            <div className="assistant-mode-switch" role="tablist" aria-label="AI 学习工具">
-              <button type="button" role="tab" aria-selected={assistantMode === 'tutor'} className={assistantMode === 'tutor' ? 'selected' : ''} onClick={() => setAssistantMode('tutor')}><BookOpen size={15} />论文精读</button>
-              <button type="button" role="tab" aria-selected={assistantMode === 'chat'} className={assistantMode === 'chat' ? 'selected' : ''} onClick={() => setAssistantMode('chat')}><MessageCircle size={15} />通用对话</button>
-              <button type="button" role="tab" aria-selected={assistantMode === 'translate'} className={assistantMode === 'translate' ? 'selected' : ''} onClick={() => setAssistantMode('translate')}><Languages size={15} />AI 翻译</button>
-            </div>
-            {assistantMode === 'chat' ? <AssistantChatPanel messages={chatMessages} onChange={setChatMessages} /> : assistantMode === 'translate' ? <AssistantTranslatePanel paperId={paper?.id || null} page={activeParagraph?.page || activePage} passage={activeParagraph?.text || ''} onSave={saveAITranslation} /> : !paper ? <div className="tutor-empty"><div className="tutor-empty-icon"><Sparkles size={18} /></div><h3>从一段原文开始</h3><p>导入论文后，选中左侧段落。你可以先复述，再请求提示、句子拆解或理解核对。</p><div className="empty-steps"><span><b>01</b>读原文</span><span><b>02</b>写理解</span><span><b>03</b>再问 AI</span></div><button className="subtle-button" onClick={() => fileRef.current?.click()}><Plus size={15} /> 导入一篇论文</button></div> : !activeParagraph ? <div className="tutor-empty"><h3>本页没有可选段落</h3><p>换到有文本的页面，或检查这是不是扫描版 PDF。</p></div> : <>
-              <div className="guide-callout"><span className="guide-sparkle"><Sparkles size={14} /></span><div><strong>先试着说出你的理解</strong><p>{studyQuestion ? `当前主线问题：${studyQuestion}` : '读完左侧高亮段落后，用自己的话复述。写得不确定也没关系。'}</p></div></div>
+            {assistantMode === 'chat' ? <AssistantChatPanel paperId={paper?.id || null} paperTitle={paper?.title} paperPageCount={paper?.pageCount} onOpenCitation={openChatCitation} actionsTarget={chatToolbarActionsTarget} /> : assistantMode === 'translate' ? <AssistantTranslatePanel paperId={paper?.id || null} page={activeParagraph?.page || activePage} passage={activeParagraph?.text || ''} onSave={saveAITranslation} /> : !paper ? <div className="tutor-empty"><div className="tutor-empty-icon"><Sparkles size={18} /></div><h3>从一段原文开始</h3><p>导入论文后，选中左侧段落。你可以先复述，再请求提示、句子拆解或理解核对。</p><div className="empty-steps"><span><b>01</b>读原文</span><span><b>02</b>写理解</span><span><b>03</b>再问 AI</span></div><button className="subtle-button" onClick={() => fileRef.current?.click()}><Plus size={15} /> 导入一篇论文</button></div> : !activeParagraph ? <div className="tutor-empty"><h3>本页没有可选段落</h3><p>换到有文本的页面，或检查这是不是扫描版 PDF。</p></div> : <>
               <div className="selection-card"><div className="selection-label"><span>当前段落</span><span>第 {activePage} 页 · {activeIndex + 1}/{paragraphs.length}</span></div><p>“{snippet(activeParagraph.text)}{activeParagraph.text.length > 110 ? '…' : ''}”</p><div className="selection-actions"><AppButton variant="text" onClick={returnToOriginal}>回到原文 <ArrowRight size={15} /></AppButton><AppButton variant="soft" onClick={() => void markParagraph()}><Highlighter size={15} />重点标注</AppButton></div></div>
               <div className="attempt-card"><div className="field-label"><span>我的理解</span><span className="optional-tag">先试着写</span></div><textarea ref={textAreaRef} value={attempt} onChange={e => setAttempt(e.target.value)} placeholder="这段主要在说……作者这样写是为了……" rows={4} /><div className="field-foot"><span>用你自己的话，不需要完美</span><span>{attempt.length}/1000</span></div></div>
               <div className="action-row"><button className="tutor-action" disabled={!activeParagraph || loadingAction !== null} onClick={() => void askTutor('hint')}><CircleHelp size={15} />给我提示</button><button className="tutor-action" disabled={!activeParagraph || loadingAction !== null} onClick={() => void askTutor('explain')}><MessageCircle size={15} />拆解句子</button><button className="tutor-action action-primary" disabled={!activeParagraph || !attempt.trim() || loadingAction !== null} onClick={() => void askTutor('check', studyQuestion || undefined)}><CheckCheck size={15} />核对理解</button></div>
               <div className="response-area">
                 {loadingAction && <div className="loading-card"><LoaderCircle size={17} className="spin" /><span>{loadingAction === 'hint' ? '正在准备提示…' : loadingAction === 'explain' ? '正在拆解原文…' : '正在核对你的理解…'}</span></div>}
-                {!loadingAction && turns.length === 0 && <div className="response-placeholder"><div className="placeholder-icon"><Zap size={16} /></div><div><strong>你的理解优先，AI 随时补位</strong><p>提示和解释会依据当前段落生成，并保留原文页码，方便你回去核对。</p></div></div>}
-                {!loadingAction && turns.map(turn => <div className={`response-card ${turn.mode === 'demo' ? 'demo-response' : ''}`} key={turn.id}><div className="response-heading"><span className="ai-badge"><Sparkles size={12} />{turn.action === 'hint' ? '学习提示' : turn.action === 'explain' ? '句子拆解 / 术语解释' : '理解核对'}</span><span className="source-citation"><FileText size={12} />第 {turn.page} 页</span></div><div className="response-copy"><MarkdownContent>{turn.answer}</MarkdownContent></div><div className="response-foot"><span>{turn.provider}</span><button disabled={notes.some(note => note.kind === 'ai' && note.paperId === paper?.id && note.page === turn.page && note.aiAnswer === turn.answer)} onClick={() => void saveAIAnswer(turn)}><Save size={12} />{notes.some(note => note.kind === 'ai' && note.paperId === paper?.id && note.page === turn.page && note.aiAnswer === turn.answer) ? '已收藏' : '收藏 AI 回答'}</button>{turn.action === 'explain' && turn.mode === 'provider' && turn.passage.length <= 120 && turn.passage.split(/\s+/).length <= 8 && <button disabled={terms.some(term => term.paperId === paper?.id && term.term.toLowerCase() === turn.passage.toLowerCase())} onClick={() => void saveGlossaryTerm(turn)}><Save size={12} />{terms.some(term => term.paperId === paper?.id && term.term.toLowerCase() === turn.passage.toLowerCase()) ? '已存术语卡' : '存为术语卡'}</button>}<button onClick={() => { setRevised(revised || attempt); revisionRef.current?.focus(); }}><ArrowDown size={12} />写下修订理解</button></div></div>)}
+                {!loadingAction && activeTurns.length === 0 && <div className="response-placeholder"><div className="placeholder-icon"><Zap size={16} /></div><div><strong>先读这一段，再请 AI 补充</strong><p>这里只显示与当前原文段落对应的回答，方便你逐条回到出处核对。</p></div></div>}
+                {!loadingAction && activeTurns.slice(0, 1).map(turn => renderResponseCard(turn))}
+                {!loadingAction && activeTurns.length > 1 && <details className="response-history"><summary>查看这段的其他回答 <span>{activeTurns.length - 1}</span></summary><div>{activeTurns.slice(1).map(turn => renderResponseCard(turn, true))}</div></details>}
               </div>
               <div className="revision-card"><div className="field-label"><span>修订后的理解</span><span className="optional-tag">保存到笔记</span></div><textarea ref={revisionRef} value={revised} onChange={e => setRevised(e.target.value)} placeholder="现在你会怎样解释这段？和刚才相比，改了什么？" rows={3} /><details className="uncertainty-input"><summary>记下仍不确定的地方（可选）</summary><textarea value={uncertainty} onChange={e => setUncertainty(e.target.value)} placeholder="例如：我还不确定这个测量指标如何计算……" rows={2} /></details><div className="revision-actions"><button className="save-note" onClick={() => void saveNote()} disabled={!attempt.trim() && !revised.trim() && !uncertainty.trim()}><Save size={14} />{savedNote ? '更新学习记录' : '保存学习记录'}</button><span>{savedNote ? '已保存过' : '只有你可以查看'}</span></div></div>
               <div className="tutor-bottom-tip"><Clock3 size={13} />读懂比读快更重要 · 完成一段后再继续</div><div className="tutor-bottom-tip"><CircleHelp size={12} />使用已连接 AI 时，当前段落、页码和你的理解会发送到所选供应商</div>
