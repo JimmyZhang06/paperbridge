@@ -11,11 +11,23 @@ import type { GlossaryTerm, LearningNote, Paper, PaperGroup, ProviderConfig, Stu
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
+const allowedOrigins = new Set((process.env.CORS_ORIGINS || '').split(',').map(origin => origin.trim()).filter(Boolean));
 app.use(express.json({ limit: '2mb' }));
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'no-referrer');
   if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+  const origin = req.headers.origin;
+  const isLocalDevOrigin = process.env.NODE_ENV !== 'production' && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin || '');
+  if (origin && (allowedOrigins.has(origin) || isLocalDevOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    if (req.method === 'OPTIONS') { res.sendStatus(204); return; }
+  } else if (origin && process.env.NODE_ENV === 'production') {
+    res.status(403).json({ error: '此网站来源未获 API 访问许可。' }); return;
+  }
   next();
 });
 
@@ -352,4 +364,5 @@ app.use((error: unknown, _req: express.Request, res: express.Response, _next: ex
 if (process.env.NODE_ENV === 'production') app.use(express.static(path.resolve(dataDir, '..', 'dist')));
 
 await ensureStore();
-app.listen(port, '127.0.0.1', () => console.log(`溯页 API listening on http://127.0.0.1:${port}`));
+const host = process.env.HOST || '127.0.0.1';
+app.listen(port, host, () => console.log(`溯页 API listening on http://${host}:${port}`));

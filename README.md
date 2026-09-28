@@ -33,6 +33,36 @@ npm run build
 npm start
 ```
 
+## 部署
+
+本项目将静态前端发布到 GitHub Pages；API、上传的 PDF、笔记和 AI 服务配置运行在自己的阿里云 ECS 上。**首次部署需准备一个解析到 ECS 的域名**（例如 `api.example.com`），让 Caddy 自动申请 HTTPS 证书。GitHub Pages 的默认前端地址为 `https://jimmyzhang06.github.io/paperbridge/`。
+
+### 发布前端到 GitHub Pages
+
+1. 在仓库 **Settings → Pages → Build and deployment** 中将 Source 设为 **GitHub Actions**。
+2. 在 **Settings → Secrets and variables → Actions → Variables** 新建变量 `VITE_API_BASE_URL`，值填 API 的 HTTPS 起源，例如 `https://api.example.com`（不要加路径或末尾斜杠）。
+3. 将代码合并到 `main`，或在 Actions 页面手动运行 **Deploy frontend to GitHub Pages**。工作流会构建并发布 `dist/`。
+
+### 在阿里云 ECS 运行 API
+
+1. 准备安装 Docker Engine 和 Docker Compose 插件的 Linux ECS，并将 API 域名的 DNS A 记录指向服务器公网 IP。
+2. 把仓库源码放到服务器，复制 `.env.example` 为 `.env`，填入 `API_DOMAIN`，并将 `CORS_ORIGINS` 保持为前端站点 Origin：`https://jimmyzhang06.github.io`。
+3. 在阿里云安全组中开放 TCP 80 和 443 供 Caddy 完成 HTTP 跳转及 TLS 证书校验。此版本尚未实现账号认证；**不要把 API 的 443 端口向全网开放**。个人使用时将 443 入站来源限制为你自己的固定公网 IP `/32`，SSH（22）也仅允许可信管理 IP。否则，知道 API 地址的人可能读写文献、笔记和供应商配置。
+4. 在服务器执行：
+
+   ```bash
+   cp .env.example .env
+   # 编辑 .env，填入 API_DOMAIN
+   docker compose up --build -d
+   docker compose logs -f api caddy
+   ```
+
+5. 确认 `https://<API_DOMAIN>/api/health` 可访问且返回服务状态，再设置 Pages 变量并运行前端发布工作流。
+
+ECS 上的 `data/` 通过 Compose 卷挂载到主机，容器重建不会清除文献数据。不要把服务器 `.env` 或 `data/` 提交到 Git。若要开放给多人或公网用户使用，应先实现账号认证、用户数据隔离和安全的 API Key 加密存储，再移除 IP 限制。
+
+GitHub Pages 工作流文件位于 `.github/workflows/deploy-pages.yml`；ECS 部署配置为 `Dockerfile`、`compose.yaml` 和 `Caddyfile`。后端仅在容器网络中暴露 8787，由 Caddy 提供 HTTPS 入口。
+
 ## 配置 AI 服务
 
 在应用的服务设置中添加供应商名称、兼容接口地址、模型名称和 API Key，然后测试并启用供应商。接口需兼容项目支持的 OpenAI API 格式；可在设置中配置多个服务并切换。没有启用服务时，应用仍可使用文献库、PDF 阅读和笔记功能；助手会明确显示演示模式回复。

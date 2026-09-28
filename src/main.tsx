@@ -33,8 +33,11 @@ type GlossaryTerm = { id: string; paperId: string; term: string; meaning: string
 type Turn = { id: string; page: number; action: 'hint' | 'explain' | 'check'; passage: string; answer: string; createdAt: string; provider: string; mode?: 'provider' | 'demo'; question?: string };
 type ProviderSnapshot = { activeProviderId: string | null; providers: Provider[] };
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+const apiUrl = (path: string) => `${API_BASE_URL}${path}`;
+
 const api = async <T,>(url: string, options?: RequestInit): Promise<T> => {
-  const response = await fetch(url, options);
+  const response = await fetch(apiUrl(url), options);
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || `请求失败 (${response.status})`);
   return data as T;
@@ -438,7 +441,7 @@ function App() {
               {currentPageIndex === 0 && <div className="first-page-label">从英文原文开始 · 选择段落查看学习提示</div>}
               {pageParagraphs.length ? pageParagraphs.map((paragraph, index) => { const marked = notes.find(note => note.kind === 'highlight' && note.page === paragraph.page && (note.passage === paragraph.text || paragraph.text.includes(note.passage))); const paint = (text: string) => { if (!marked?.passage || !text.includes(marked.passage)) return text; const start = text.indexOf(marked.passage); return <>{text.slice(0, start)}<mark className={`paper-mark paper-mark-${marked.highlightColor || 'yellow'}`}>{marked.passage}</mark>{text.slice(start + marked.passage.length)}</>; }; return <p key={paragraph.id} data-paragraph-id={paragraph.id} onClick={() => { if (!window.getSelection()?.toString().trim()) selectParagraph(paragraph); }} className={`paper-paragraph ${activeParagraph?.id === paragraph.id ? 'paragraph-active' : ''}`}><span className="paragraph-index">{String(index + 1).padStart(2, '0')}</span>{paint(paragraph.text)}</p>; }) : <div className="page-empty"><FileText size={23} /><p>这页没有提取到可读文本。</p><small>如果 PDF 是扫描件，需要先进行 OCR。</small></div>}
               <div className="page-footer"><span>溯页 · 原文阅读</span><span>{activePage}</span></div>
-            </article> : <div className="paper-pdf-scroll"><Suspense fallback={<div className="pdf-loading"><LoaderCircle className="spin" size={19} />正在载入 PDF 阅读器…</div>}><PdfPageViewer file={`/api/papers/${paper.id}/file`} pageNumber={activePage} /></Suspense></div>}
+            </article> : <div className="paper-pdf-scroll"><Suspense fallback={<div className="pdf-loading"><LoaderCircle className="spin" size={19} />正在载入 PDF 阅读器…</div>}><PdfPageViewer file={apiUrl(`/api/papers/${paper.id}/file`)} pageNumber={activePage} /></Suspense></div>}
             <div className="reader-footer"><div className="reading-progress"><span>学习进度</span><div className="progress-track"><i style={{ width: `${progress}%` }} /></div><b>{progress}%</b></div><div className="page-controls"><button className="page-button" disabled={activePage <= 1} onClick={() => navigatePage(activePage - 1)}><ChevronLeft size={15} />上一页</button><span>{activePage} / {paper.pageCount}</span><button className="page-button" disabled={activePage >= paper.pageCount} onClick={() => navigatePage(activePage + 1)}>下一页<ChevronRight size={15} /></button></div></div>
           </> : <div className="welcome-reader"><div className="welcome-icon"><BookOpen size={25} /></div><span className="eyebrow">READ WITH INTENTION</span><h1>把论文读懂，<br /><em>而不是读完。</em></h1><p>导入一篇英文论文，从原文开始。先写下你的理解，再用 AI 提示逐步核对。</p><button className="primary-button" onClick={() => fileRef.current?.click()} disabled={uploading}><Upload size={16} />{uploading ? '正在解析论文…' : '导入第一篇论文'}</button><div className="feature-row"><span><Check size={14} /> 原文优先</span><span><Check size={14} /> 可核对页码</span><span><Check size={14} /> 笔记本地保存</span></div></div>}
         </section>
