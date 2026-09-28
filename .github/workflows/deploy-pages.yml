@@ -7,7 +7,7 @@ on:
 
 permissions:
   contents: read
-      pages: read
+  pages: read
 
 concurrency:
   group: github-pages

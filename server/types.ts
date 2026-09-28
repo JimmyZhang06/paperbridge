@@ -62,6 +62,28 @@ export type StudyTurn = {
   provider: string;
 };
 
+export type AssistantChatMessage = {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
+  provider?: string;
+  mode?: 'provider' | 'demo';
+  paperId?: string;
+  paperTitle?: string;
+  paperPageCount?: number;
+  paperScope?: 'full-paper';
+  page?: number;
+};
+
+export type AssistantConversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: AssistantChatMessage[];
+};
+
 export type Store = {
   papers: Paper[];
   groups: PaperGroup[];
@@ -70,4 +92,5 @@ export type Store = {
   notes: LearningNote[];
   terms: GlossaryTerm[];
   turns: StudyTurn[];
+  conversations: AssistantConversation[];
 };

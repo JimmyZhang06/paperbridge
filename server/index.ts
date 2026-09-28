@@ -5,9 +5,9 @@ import { randomUUID } from 'node:crypto';
 import { readFile, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { PDFParse } from 'pdf-parse';
-import { createProvider, demoTutor, type ChatMessage, type TutorRequest } from './providers.js';
+import { createProvider, demoTutor, type ChatMessage, type TranslationContext, type TutorRequest } from './providers.js';
 import { dataDir, ensureStore, publicProvider, readStore, uploadDir, writeStore } from './store.js';
-import type { GlossaryTerm, LearningNote, Paper, PaperGroup, ProviderConfig, StudyTurn } from './types.js';
+import type { AssistantChatMessage, AssistantConversation, GlossaryTerm, LearningNote, Paper, PaperGroup, ProviderConfig, StudyTurn } from './types.js';
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -62,6 +62,73 @@ function paragraphs(text: string) {
     for (let i = 0; i < sentences.length; i += 3) chunks.push(sentences.slice(i, i + 3).join(' '));
     return chunks;
   }).filter(p => p.length > 25 || headings.test(p));
+}
+
+function retrievePaperExcerpts(paper: Paper, question: string) {
+  const expansions: Array<[string, string[]]> = [
+    ['方法', ['method', 'participant', 'sample', 'procedure', 'measure', 'analysis']],
+    ['样本', ['participant', 'sample', 'recruit', 'boy', 'girl']],
+    ['数据', ['data', 'measure', 'score', 'analysis', 'model']],
+    ['结果', ['result', 'finding', 'associated', 'significant', 'correlate']],
+    ['发现', ['result', 'finding', 'associated', 'significant', 'correlate']],
+    ['结论', ['discussion', 'conclusion', 'implication', 'suggest']],
+    ['局限', ['limitation', 'future', 'however', 'caution']],
+    ['背景', ['introduction', 'background', 'literature', 'previous']],
+    ['假设', ['hypothesis', 'hypotheses', 'predict', 'expected']],
+    ['测量', ['measure', 'scale', 'assess', 'instrument', 'variable']],
+  ];
+  const query = question.toLocaleLowerCase();
+  const tokens = new Set((query.match(/[a-z][a-z'-]{2,}|\d+(?:\.\d+)?|[\u4e00-\u9fff]{2,}/g) || []).filter(token => !/^(what|which|when|where|this|that|with|from|about|please|explain|paper|tell|作者|论文|这个|如何|什么|为什么|请问)$/.test(token)));
+  for (const [term, values] of expansions) if (query.includes(term)) values.forEach(value => tokens.add(value));
+  const candidates = paper.pages.flatMap(page => paragraphs(page.text).map(text => ({ page: page.page, text: text.trim() })))
+    .filter(item => item.text.length > 45)
+    .map(item => {
+      const lower = item.text.toLocaleLowerCase();
+      const score = [...tokens].reduce((sum, token) => sum + (lower.includes(token) ? 1 : 0), 0)
+        + (item.page === 1 && /abstract/i.test(item.text) ? 0.5 : 0);
+      return { ...item, score };
+    });
+  const selected: Array<{ page: number; text: string }> = [];
+  const add = (page: number, text: string) => {
+    const clean = text.replace(/\s+/g, ' ').trim();
+    if (!clean) return;
+    const excerpt = clean.slice(0, 1_050);
+    if (!selected.some(item => item.page === page && item.text.slice(0, 100) === excerpt.slice(0, 100))) selected.push({ page, text: excerpt });
+  };
+  const ranked = candidates.filter(item => item.score >= 1).sort((a, b) => b.score - a.score || a.page - b.page);
+  // Preserve a short abstract excerpt for broad questions, then search every
+  // extracted page. Prefer coverage across pages before taking a second chunk
+  // from a page, so the model can connect methods, findings, and discussion.
+  const abstract = candidates.find(item => item.page === 1 && item.text.length > 80);
+  if (abstract) add(abstract.page, abstract.text);
+  if (ranked.length === 0) {
+    const usablePages = paper.pages.filter(item => item.text.trim().length > 50);
+    const sampleCount = Math.min(8, usablePages.length);
+    for (let index = 0; index < sampleCount; index++) {
+      const pageIndex = sampleCount === 1 ? 0 : Math.round(index * (usablePages.length - 1) / (sampleCount - 1));
+      const page = usablePages[pageIndex];
+      if (page) add(page.page, paragraphs(page.text).find(text => text.length > 80) || page.text);
+    }
+    return selected.sort((a, b) => a.page - b.page);
+  }
+  const perPage = new Map<number, number>();
+  for (const item of ranked) {
+    if (selected.length >= 10) break;
+    if ((perPage.get(item.page) || 0) >= 1) continue;
+    const before = selected.length;
+    add(item.page, item.text);
+    if (selected.length > before) perPage.set(item.page, (perPage.get(item.page) || 0) + 1);
+  }
+  if (selected.length < 10) {
+    for (const item of ranked) {
+      if (selected.length >= 10) break;
+      if ((perPage.get(item.page) || 0) >= 2) continue;
+      const before = selected.length;
+      add(item.page, item.text);
+      if (selected.length > before) perPage.set(item.page, (perPage.get(item.page) || 0) + 1);
+    }
+  }
+  return selected.sort((a, b) => a.page - b.page);
 }
 
 app.get('/api/health', (_req, res) => res.json({ ok: true, name: '溯页 API', version: '0.1.0' }));
@@ -241,22 +308,95 @@ app.post('/api/providers/:id/test', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.get('/api/assistant/conversations', async (_req, res) => {
+  const store = await readStore();
+  res.json(store.conversations.slice().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(({ id, title, createdAt, updatedAt, messages }) => ({
+    id, title, createdAt, updatedAt, messageCount: messages.length,
+  })));
+});
+
+app.post('/api/assistant/conversations', async (_req, res) => {
+  const store = await readStore();
+  const now = new Date().toISOString();
+  const conversation: AssistantConversation = { id: randomUUID(), title: '新对话', createdAt: now, updatedAt: now, messages: [] };
+  store.conversations.unshift(conversation);
+  await writeStore(store);
+  res.status(201).json(conversation);
+});
+
+app.get('/api/assistant/conversations/:id', async (req, res) => {
+  const conversation = (await readStore()).conversations.find(item => item.id === req.params.id);
+  if (!conversation) { res.status(404).json({ error: '找不到这条对话记录。' }); return; }
+  res.json(conversation);
+});
+
+app.delete('/api/assistant/conversations/:id', async (req, res) => {
+  const store = await readStore();
+  const before = store.conversations.length;
+  store.conversations = store.conversations.filter(item => item.id !== req.params.id);
+  if (store.conversations.length === before) { res.status(404).json({ error: '找不到这条对话记录。' }); return; }
+  await writeStore(store);
+  res.json({ ok: true });
+});
+
 app.post('/api/assistant/chat', async (req, res, next) => {
   try {
-    const messages = req.body?.messages as ChatMessage[] | undefined;
-    if (!Array.isArray(messages) || messages.length < 1 || messages.length > 40
-      || messages.some(message => !message || !['user', 'assistant'].includes(message.role) || typeof message.content !== 'string' || !message.content.trim() || message.content.length > 8_000)
-      || messages[messages.length - 1]?.role !== 'user'
-      || messages.reduce((total, message) => total + message.content.length, 0) > 30_000) {
-      res.status(400).json({ error: '对话内容无效或过长，请控制在 40 条消息、30,000 个字符以内。' }); return;
+    const { conversationId, content, paperId, page, passage } = req.body as { conversationId?: string; content?: string; paperId?: string; page?: number; passage?: string };
+    if (!conversationId || typeof content !== 'string' || !content.trim() || content.length > 8_000
+      || (paperId !== undefined && typeof paperId !== 'string')
+      || (page !== undefined && (!paperId || typeof page !== 'number' || !Number.isInteger(page) || page < 1))
+      || (passage !== undefined && (typeof passage !== 'string' || !passage.trim() || passage.length > 12_000 || page === undefined))) {
+      res.status(400).json({ error: '请选择对话，并输入不超过 8,000 个字符的问题。' }); return;
     }
     const store = await readStore();
+    const conversation = store.conversations.find(item => item.id === conversationId);
+    if (!conversation) { res.status(404).json({ error: '这条对话已不存在，请新建对话后重试。' }); return; }
+    const paper = paperId ? store.papers.find(item => item.id === paperId) : undefined;
+    if (paperId && !paper) { res.status(404).json({ error: '找不到要关联的文献，请刷新文献库后重试。' }); return; }
+    if (paper && page !== undefined) {
+      const sourcePage = paper.pages.find(item => item.page === page);
+      const normalize = (value: string) => value.replace(/\s+/g, ' ').trim();
+      const prefix = normalize(passage || '').slice(0, 48);
+      if (!sourcePage || (passage && (!prefix || !normalize(sourcePage.text).includes(prefix)))) {
+        res.status(400).json({ error: '当前段落无法在论文原文中核对，请重新选择后再提问。' }); return;
+      }
+    }
+    const userMessage: AssistantChatMessage = { id: randomUUID(), role: 'user', content: content.trim(), createdAt: new Date().toISOString(), ...(paper ? { paperId: paper.id, paperTitle: paper.title, paperPageCount: paper.pageCount, paperScope: 'full-paper' as const, ...(page !== undefined ? { page } : {}) } : {}) };
+    conversation.messages.push(userMessage);
+    if (conversation.title === '新对话') conversation.title = content.trim().replace(/\s+/g, ' ').slice(0, 38) || '新对话';
+    conversation.updatedAt = userMessage.createdAt;
+    conversation.messages = conversation.messages.slice(-200);
+    await writeStore(store);
     const provider = store.providers.find(item => item.id === store.activeProviderId && item.enabled);
     if (!provider) {
-      res.json({ answer: '通用助手目前处于演示模式，尚未连接 AI 服务，因此不能生成真实回答。请先在右上角设置一个 AI 供应商。', provider: '演示模式', mode: 'demo' }); return;
+      const result = { answer: '通用助手目前处于演示模式，尚未连接 AI 服务，因此不能生成真实回答。请先在右上角设置一个 AI 供应商。', provider: '演示模式', mode: 'demo' as const };
+      const updatedStore = await readStore();
+      const current = updatedStore.conversations.find(item => item.id === conversationId);
+      if (current) {
+        current.messages.push({ id: randomUUID(), role: 'assistant', content: result.answer, createdAt: new Date().toISOString(), provider: result.provider, mode: result.mode });
+        current.updatedAt = new Date().toISOString();
+        await writeStore(updatedStore);
+      }
+      res.json({ ...result, conversationId }); return;
+    }
+    const recentMessages = conversation.messages.slice(-40);
+    while (recentMessages.length > 1 && recentMessages.reduce((total, message) => total + message.content.length, 0) > 22_000) recentMessages.shift();
+    const messages: ChatMessage[] = recentMessages.map(({ role, content: text }) => ({ role, content: text }));
+    if (paper) {
+      const sourceExcerpts = retrievePaperExcerpts(paper, content);
+      const lastMessage = messages[messages.length - 1];
+      if (lastMessage) lastMessage.paperContext = { paperTitle: paper.title, pageCount: paper.pageCount, excerpts: sourceExcerpts };
     }
     const answer = await createProvider(provider).chat(messages);
-    res.json({ answer, provider: provider.name, mode: 'provider' });
+    const updatedStore = await readStore();
+    const current = updatedStore.conversations.find(item => item.id === conversationId);
+    if (current) {
+      current.messages.push({ id: randomUUID(), role: 'assistant', content: answer, createdAt: new Date().toISOString(), provider: provider.name, mode: 'provider' });
+      current.updatedAt = new Date().toISOString();
+      current.messages = current.messages.slice(-200);
+      await writeStore(updatedStore);
+    }
+    res.json({ answer, provider: provider.name, mode: 'provider', conversationId });
   } catch (error) { next(error); }
 });
 
@@ -266,7 +406,7 @@ app.post('/api/assistant/translate', async (req, res, next) => {
       paperId?: string; page?: number; passage?: string; targetLanguage?: string;
     };
     const languages = new Set(['简体中文', '繁體中文', 'English', '日本語']);
-    if (!paperId || !Number.isInteger(pageNumber) || !passage?.trim() || passage.length > 12_000
+    if (!paperId || typeof pageNumber !== 'number' || !Number.isInteger(pageNumber) || !passage?.trim() || passage.length > 12_000
       || !languages.has(targetLanguage || '简体中文')) {
       res.status(400).json({ error: '请提供有效的论文段落、页码和目标语言。' }); return;
     }
@@ -283,8 +423,21 @@ app.post('/api/assistant/translate', async (req, res, next) => {
     if (!provider) {
       res.json({ answer: 'AI 翻译目前处于演示模式，尚未连接 AI 服务，因此不会生成不可靠的译文。请先在右上角设置一个 AI 供应商。', provider: '演示模式', mode: 'demo' }); return;
     }
-    const answer = await createProvider(provider).translate(passage, targetLanguage || '简体中文');
-    res.json({ answer, provider: provider.name, mode: 'provider' });
+    const normalizedPageText = normalize(sourcePage.text);
+    const normalizedPassage = normalize(passage);
+    const passageStart = normalizedPageText.indexOf(normalizedPassage);
+    const matchedStart = passageStart >= 0 ? passageStart : normalizedPageText.indexOf(selectedPrefix);
+    const matchedEnd = Math.min(normalizedPageText.length, matchedStart + (passageStart >= 0 ? normalizedPassage.length : Math.max(selectedPrefix.length, passage.length)));
+    let previousText = normalizedPageText.slice(Math.max(0, matchedStart - 800), matchedStart);
+    let followingText = normalizedPageText.slice(matchedEnd, matchedEnd + 800);
+    const previousPage = paper.pages.find(item => item.page === pageNumber - 1);
+    const nextPage = paper.pages.find(item => item.page === pageNumber + 1);
+    if (previousPage && previousText.length < 180) previousText = `${normalize(previousPage.text).slice(-300)} ${previousText}`.trim();
+    if (nextPage && followingText.length < 180) followingText = `${followingText} ${normalize(nextPage.text).slice(0, 300)}`.trim();
+    const glossary = store.terms.filter(term => term.paperId === paperId).slice(0, 30).map(({ term, meaning }) => ({ term, meaning }));
+    const context: TranslationContext = { paperTitle: paper.title, page: pageNumber!, previousText, followingText, glossary };
+    const answer = await createProvider(provider).translate(passage, targetLanguage || '简体中文', context);
+    res.json({ answer, provider: provider.name, mode: 'provider', context: { neighboringText: Boolean(previousText || followingText), glossaryCount: glossary.length } });
   } catch (error) { next(error); }
 });
 

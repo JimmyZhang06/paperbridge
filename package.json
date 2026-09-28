@@ -13,6 +13,7 @@
   "dependencies": {
     "dotenv": "^18.0.4",
     "express": "^5.2.1",
+    "katex": "^0.18.9",
     "lucide-react": "^1.48.0",
     "multer": "^2.4.0",
     "pdf-parse": "^2.4.5",
@@ -21,7 +22,9 @@
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
     "react-pdf": "^11.0.0",
-    "remark-gfm": "^4.0.1"
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",

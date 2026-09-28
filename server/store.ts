@@ -9,7 +9,7 @@ export const uploadDir = path.join(dataDir, 'uploads');
 const storePath = path.join(dataDir, 'store.json');
 
 const initial: Store = {
-  papers: [], groups: [], providers: [], activeProviderId: null, notes: [], terms: [], turns: [],
+  papers: [], groups: [], providers: [], activeProviderId: null, notes: [], terms: [], turns: [], conversations: [],
 };
 
 export async function ensureStore() {
