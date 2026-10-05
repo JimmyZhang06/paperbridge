@@ -1,0 +1,25 @@
+.paper-review-backdrop { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 20px; background: rgba(29, 47, 66, .38); }
+.paper-review-dialog { width: min(900px, 100%); max-height: min(90vh, 900px); display: flex; flex-direction: column; background: #fff; border: 1px solid #dce5ec; border-radius: 20px; box-shadow: 0 24px 65px rgba(30, 54, 75, .2); color: #263e57; }
+.paper-review-header { display: flex; gap: 20px; justify-content: space-between; padding: 26px 30px 20px; border-bottom: 1px solid #e7edf1; }
+.paper-review-header h2 { margin: 5px 0 6px; font: 700 27px/1.2 Georgia, 'Times New Roman', serif; }
+.paper-review-header p { margin: 0; color: #6c8195; font-size: 14px; line-height: 1.6; }
+.paper-review-close { align-self: flex-start; width: 36px; height: 36px; border: 0; background: transparent; color: #71879b; cursor: pointer; }
+.paper-review-dialog form { min-height: 0; display: flex; flex-direction: column; }
+.paper-review-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 20px 30px; }
+.paper-review-fields label { display: grid; gap: 8px; font-size: 14px; font-weight: 650; }
+.paper-review-fields input, .paper-review-block textarea { width: 100%; box-sizing: border-box; border: 1px solid #d7e1e8; border-radius: 10px; padding: 11px 13px; color: #263e57; background: #fff; font-size: 15px; font-weight: 400; line-height: 1.5; }
+.paper-review-fields input:focus, .paper-review-block textarea:focus { outline: 2px solid #a9c4d9; border-color: #648bad; }
+.paper-review-list-header { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; padding: 0 30px 12px; font-size: 14px; }
+.paper-review-list-header span { color: #8292a2; }
+.paper-review-list { overflow: auto; padding: 0 30px 8px; min-height: 120px; }
+.paper-review-block { border-top: 1px solid #edf1f3; padding: 13px 0; }
+.paper-review-block.is-hidden { opacity: .58; }
+.paper-review-block-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; color: #74879a; font-size: 13px; }
+.paper-review-block-meta button { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; color: #365d7f; font-size: 14px; cursor: pointer; }
+.paper-review-block textarea { resize: vertical; min-height: 70px; font-family: Georgia, 'Times New Roman', serif; }
+.paper-review-error { padding: 0 30px; color: #a64c40; font-size: 14px; }
+.paper-review-actions { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 18px 30px; border-top: 1px solid #e7edf1; }
+.paper-review-actions div { display: flex; gap: 10px; }
+.paper-review-actions button { border: 1px solid #d9e2e9; border-radius: 9px; padding: 10px 15px; background: #fff; color: #315776; font-size: 14px; cursor: pointer; }
+.paper-review-actions .paper-review-save { background: #2f5678; color: #fff; border-color: #2f5678; }
+@media (max-width: 640px) { .paper-review-backdrop { padding: 0; } .paper-review-dialog { max-height: 100dvh; height: 100dvh; border-radius: 0; } .paper-review-header, .paper-review-fields, .paper-review-actions { padding-left: 18px; padding-right: 18px; } .paper-review-fields { grid-template-columns: 1fr; } .paper-review-list, .paper-review-list-header { padding-left: 18px; padding-right: 18px; } }

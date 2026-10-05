@@ -1,7 +1,24 @@
 node_modules/
 dist/
+dist-server/
+release/
 .env
 data/store.json
+data/
+.env.*
+!.env.example
+__pycache__/
+*.pyc
 data/uploads/
 *.tsbuildinfo
 
+
+data/*.sqlite*
+data/*.bak
+data/*.bin
+build/parser/
+build/parser-work/
+build/*.spec
+
+build/*.log
+build/desktop-check-data/

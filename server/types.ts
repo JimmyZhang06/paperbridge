@@ -1,4 +1,54 @@
-export type PaperPage = { page: number; text: string };
+export type PdfBlockKind = 'heading' | 'paragraph' | 'caption' | 'reference' | 'other' | 'title' | 'authors' | 'abstract' | 'metadata' | 'affiliation';
+export type PdfTextBlock = {
+  id: string;
+  kind: PdfBlockKind;
+  headingLevel?: 1 | 2 | 3;
+  text: string;
+  fontSize?: number;
+  runs?: Array<{ text: string; bold?: boolean; italic?: boolean; vertical?: 'super' | 'sub' }>;
+  /** Normalized x, y, width and height in page coordinates (0–1). */
+  bbox: [number, number, number, number];
+  /** Estimated normalized area occupied by the visual immediately around a figure/table caption. */
+  figureCrop?: [number, number, number, number];
+  confidence: number;
+  source: 'text-layer' | 'ocr';
+  hidden?: boolean;
+  originalText?: string;
+  originalRuns?: PdfTextBlock['runs'];
+  manualFigureCrop?: [number,number,number,number];
+};
+export type SourceAnchor = {
+  paperId: string;
+  fileHash: string;
+  extractionRevision: string;
+  pageIndex: number;
+  blockId?: string;
+  quote?: { exact: string; prefix: string; suffix: string };
+  /** Rectangles in normalized, unrotated page coordinates, top-left origin. */
+  rects?: Array<[number, number, number, number]>;
+};
+export type SourceEvidence = { id: string; page: number; text: string; section: string; anchor: SourceAnchor };
+export type PdfPageQuality = {
+  status: 'good' | 'needs-review' | 'low-text' | 'empty';
+  characterCount: number;
+  textItemCount: number;
+  warnings: string[];
+};
+export type PaperPage = {
+  page: number;
+  text: string;
+  paragraphs?: string[];
+  blocks?: PdfTextBlock[];
+  quality?: PdfPageQuality;
+};
+export type PdfExtractionSummary = {
+  engine: string;
+  quality: 'good' | 'partial';
+  warnings: string[];
+  lowTextPages: number[];
+  reviewPages?: number[];
+  doi?: string;
+};
 
 export type Paper = {
   id: string;
@@ -10,6 +60,11 @@ export type Paper = {
   groupId: string | null;
   pageCount: number;
   pages: PaperPage[];
+  extraction?: PdfExtractionSummary;
+  metadataCorrected?: boolean;
+  fileHash?: string;
+  extractionRevision?: string;
+  completedStages?: string[];
 };
 
 export type PaperGroup = { id: string; name: string; createdAt: string };
@@ -39,6 +94,9 @@ export type LearningNote = {
   highlightColor?: 'yellow' | 'blue' | 'green';
   createdAt: string;
   updatedAt: string;
+  anchor?: SourceAnchor;
+  tags?: string[];
+  originMessageId?: string;
 };
 
 export type GlossaryTerm = {
@@ -49,6 +107,7 @@ export type GlossaryTerm = {
   passage: string;
   page: number;
   createdAt: string;
+  anchor?: SourceAnchor;
 };
 
 export type StudyTurn = {
@@ -60,6 +119,7 @@ export type StudyTurn = {
   answer: string;
   createdAt: string;
   provider: string;
+  anchor?: SourceAnchor;
 };
 
 export type AssistantChatMessage = {
@@ -74,6 +134,8 @@ export type AssistantChatMessage = {
   paperPageCount?: number;
   paperScope?: 'full-paper';
   page?: number;
+  sources?: SourceEvidence[];
+  status?: 'complete' | 'interrupted' | 'failed';
 };
 
 export type AssistantConversation = {

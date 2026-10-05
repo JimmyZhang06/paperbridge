@@ -1,2 +1,3 @@
 .group-nav-item.selected{background:#edf2f5;color:#4e6b84}
+.pdf-quality-warning{display:flex;align-items:center;flex-wrap:wrap;gap:8px;align-self:stretch;margin:0 16px 8px;padding:8px 12px;border:1px solid #eadfc8;border-radius:7px;background:#fcf8ef;color:#826a3d;font-size:14px}.pdf-quality-warning span{flex:1;min-width:160px}.pdf-quality-warning button{border:0;background:transparent;color:#315d80;font-size:14px;font-weight:650;cursor:pointer;text-decoration:underline;text-underline-offset:3px}.paper-topline-actions{display:inline-flex;align-items:center;gap:16px}.paper-topline-actions button{border:0;background:transparent;color:#5b7891;font-size:13px;cursor:pointer}.paper-topline-actions button:hover{text-decoration:underline}
 

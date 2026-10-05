@@ -6,11 +6,11 @@ export type StudyStageId = 'background' | 'gap' | 'question' | 'method' | 'findi
 export type StudySource = { id: string; page: number; text: string; section?: string };
 
 const stages: Array<{ id: StudyStageId; title: string; goal: string; check: string; patterns: RegExp }> = [
-  { id: 'background', title: '研究背景', goal: '作者在研究什么现象？为什么值得研究？', check: '这项研究关注的现象是什么，为什么重要？', patterns: /family conflict|adolescen|emotional arousal|emotional reactivity|family relationship/i },
+  { id: 'background', title: '研究背景', goal: '作者在研究什么现象？为什么值得研究？', check: '这项研究关注的现象是什么，为什么重要？', patterns: /previous research|prior studies|background|important|known|literature|introduction/i },
   { id: 'gap', title: '已有不足', goal: '作者认为此前研究还没有解释什么？', check: '作者指出了什么尚未解决的问题？', patterns: /little attention|few studies|less is known|limited research|gap|remain unclear|not been|understudied|however/i },
   { id: 'question', title: '研究问题', goal: '作者具体想检验哪些变量之间的关系？', check: '作者想回答的核心问题是什么？', patterns: /current study|this study|we (exam|investigat|hypothes|propos)|aim(ed)? to|research question|hypothes/i },
-  { id: 'method', title: '研究方法', goal: '弄清样本、冲突讨论情境、三类测量指标和分析方式。', check: '作者如何测量青少年的情绪唤起？研究中比较或关联了哪些指标？', patterns: /participant|sample|procedure|discussion|cortisol|fundamental frequency|self.report|measure|analysis|coded/i },
-  { id: 'findings', title: '主要发现', goal: '区分每个指标的结果，以及它们之间的关联。', check: '数据直接显示了哪些关系？结果是否支持作者的判断？', patterns: /result|findings|significant|associated|association|higher|greater|variability|time.to.peak/i },
+  { id: 'method', title: '研究方法', goal: '弄清研究对象、流程、测量与分析，并核对每项原文依据。', check: '研究对象是谁？测了什么？如何处理与比较数据？为什么这样设计？', patterns: /participant|sample|procedure|experiment|measure|analysis|coded|dataset|review|interview/i },
+  { id: 'findings', title: '主要发现', goal: '区分每个指标的结果，以及它们之间的关联。', check: '数据直接显示了哪些关系？结果是否支持作者的判断？', patterns: /result|findings|significant|associated|association|higher|greater|estimate|effect|difference/i },
   { id: 'contribution', title: '贡献与局限', goal: '作者如何解释发现？结论适用范围有哪些限制？', check: '作者认为研究贡献是什么？有哪些局限或未解决的问题？', patterns: /implication|contribut|limitation|future|caution|suggest|discussion|generaliz/i },
 ];
 
@@ -19,16 +19,19 @@ export function studyQuestionFor(stageId: StudyStageId) {
 }
 
 const methodItems = [
-  { title: '研究对象与样本', pattern: /participant|sample|boy|girl|adolescent|recruit/i },
-  { title: '研究情境与流程', pattern: /discussion|conflict|procedure|parent|task|session/i },
-  { title: '测量指标', pattern: /fundamental frequency|cortisol|self.report|negative emotion|measure|rating/i },
-  { title: '数据处理', pattern: /aggregate|coded|coding|time.to.peak|variability|data reduction/i },
+  { title: '研究对象与样本', pattern: /participant|sample|recruit|dataset|cohort|subjects|respondents/i },
+  { title: '研究情境与流程', pattern: /procedure|task|session|experiment|protocol|interview|randomi/i },
+  { title: '测量指标', pattern: /self.report|measure|rating|instrument|scale|variable|outcome|assessment/i },
+  { title: '数据处理', pattern: /aggregate|coded|coding|preprocess|data reduction|missing data|normaliz|exclu/i },
   { title: '分析方法', pattern: /analysis|model|regression|correlat|predict|multilevel/i },
 ];
 
 const excerpt = (text: string) => text.replace(/\s+/g, ' ').trim().slice(0, 170);
 
-export function StudyRoadmap({ paragraphs, activeStage, onStageChange, onSelectSource, onContinue }: {
+export function StudyRoadmap({ paperId,completedStages,onConfirm,paragraphs, activeStage, onStageChange, onSelectSource, onContinue }: {
+  paperId?:string;
+  completedStages:string[];
+  onConfirm:(stage:string,completed:boolean)=>Promise<void>;
   paragraphs: StudySource[];
   activeStage: StudyStageId;
   onStageChange: (stage: StudyStageId) => void;
@@ -39,23 +42,24 @@ export function StudyRoadmap({ paragraphs, activeStage, onStageChange, onSelectS
   const evidence = useMemo(() => {
     const sectionFirst = stage.id === 'findings' ? paragraphs.filter(item => /results/i.test(item.section || ''))
       : stage.id === 'contribution' ? paragraphs.filter(item => /discussion|limitation|future/i.test(item.section || '')) : [];
-    const matched = paragraphs.filter(item => stage.patterns.test(item.text));
+    const matched = paragraphs.filter(item => item.text.length > 60 && stage.patterns.test(item.text));
+    if(stage.id === 'background') sectionFirst.push(...paragraphs.filter(item=>item.text.length>80 && /abstract|introduction|background/i.test(item.section || '')));
     const prioritized = [...new Map([...sectionFirst, ...matched].map(item => [item.id, item])).values()];
     return prioritized.slice(0, 4);
   }, [paragraphs, stage]);
   const methods = useMemo(() => methodItems.map(item => ({
     ...item,
-    source: paragraphs.find(paragraph => item.pattern.test(paragraph.text) && /method|participant|procedure|measure|analysis/i.test(paragraph.section || ''))
-      || paragraphs.find(paragraph => item.pattern.test(paragraph.text)),
+    source: paragraphs.find(paragraph => paragraph.text.length > 60 && item.pattern.test(paragraph.text) && /method|participant|procedure|measure|analysis/i.test(paragraph.section || ''))
+      || paragraphs.find(paragraph => paragraph.text.length > 60 && item.pattern.test(paragraph.text)),
   })), [paragraphs]);
-  const resultEvidence = useMemo(() => paragraphs.filter(item => /results/i.test(item.section || '') && /associated|significant|higher|greater|variability|cortisol|frequency|result/i.test(item.text)).slice(0, 3), [paragraphs]);
+  const resultEvidence = useMemo(() => paragraphs.filter(item => /results/i.test(item.section || '') && /associated|significant|higher|greater|difference|effect|result/i.test(item.text)).slice(0, 3), [paragraphs]);
   const interpretationEvidence = useMemo(() => paragraphs.filter(item => /discussion|implication/i.test(item.section || '') && /suggest|interpret|implication|consistent|may|could|limitation|future/i.test(item.text)).slice(0, 2), [paragraphs]);
 
   return <div className="roadmap-content">
     <div className="roadmap-heading"><div><strong>论文主线</strong><span>从问题走到证据</span></div><span className="roadmap-current">{stages.findIndex(item => item.id === activeStage) + 1} / {stages.length}</span></div>
     <nav className="roadmap-stages" aria-label="论文主线阶段">
       {stages.map((item, index) => <button key={item.id} className={`roadmap-stage ${item.id === activeStage ? 'active' : ''}`} onClick={() => onStageChange(item.id)} aria-current={item.id === activeStage ? 'step' : undefined}>
-        <span className="roadmap-stage-marker">{index < stages.findIndex(candidate => candidate.id === activeStage) ? <Check size={12} /> : <span>{index + 1}</span>}</span><span>{item.title}</span>
+        <span className="roadmap-stage-marker">{completedStages.includes(item.id) ? <Check size={12} /> : <span>{index + 1}</span>}</span><span>{item.title}</span>
       </button>)}
     </nav>
     <section className="roadmap-focus">
@@ -69,6 +73,7 @@ export function StudyRoadmap({ paragraphs, activeStage, onStageChange, onSelectS
       </div> : <div className="roadmap-evidence-list">
         {evidence.length ? evidence.map(item => <button key={item.id} className="roadmap-evidence-link" onClick={() => onSelectSource(item)}><FileText size={12} /><span>p. {item.page} · {excerpt(item.text)}</span><ArrowRight size={12} /></button>) : <p className="roadmap-empty"><Circle size={12} />当前提取文本中没有找到明确线索，可在原文中选择相关段落继续。</p>}
       </div>}
+      {paperId && <label className="study-confirm"><input type="checkbox" checked={completedStages.includes(activeStage)} onChange={event=>void onConfirm(activeStage,event.target.checked)}/>我能用自己的话解释这一阶段，并核对原文依据</label>}
       <button className="roadmap-continue" onClick={() => onContinue(stage.check)}><Sparkles size={14} />带着这个问题去理解核对</button>
     </section>
     <p className="roadmap-footnote">线索来自当前 PDF 的文本提取；点击页码回到原文自行核对。</p>
